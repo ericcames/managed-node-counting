@@ -1,0 +1,2 @@
+timestamp,controller_url,total_count,enabled_count,disabled_count,job_id,metrics_available,hosts_in_metrics,hosts_automated,hosts_not_automated,most_recent_automation
+2026-04-17T21:36:41Z,https://aap-aap.apps.cluster-2gqbz-1.dynamic.redhatworkshops.io,12,12,0,144,True,5,5,0,
