@@ -189,6 +189,58 @@
         msg: "CSV report written to output/managed_node_count_{{ count_result.timestamp | replace(':', '-') }}.csv"
 
     # -----------------------------------------------------------------------
+    # Push CSV to GitHub repository output/ directory via GitHub Contents API
+    # -----------------------------------------------------------------------
+
+    - name: Set GitHub context
+      ansible.builtin.set_fact:
+        github_token: "{{ lookup('env', 'GITHUB_TOKEN') }}"
+        github_repo_owner: "{{ lookup('env', 'GITHUB_REPO_OWNER') }}"
+        github_repo_name: "{{ lookup('env', 'GITHUB_REPO_NAME') }}"
+        github_repo_branch: "{{ lookup('env', 'GITHUB_REPO_BRANCH') }}"
+        csv_filename: "managed_node_count_{{ count_result.timestamp | replace(':', '-') }}.csv"
+
+    - name: Assert GitHub credentials are present
+      ansible.builtin.assert:
+        that:
+          - github_token | length > 0
+          - github_repo_owner | length > 0
+          - github_repo_name | length > 0
+          - github_repo_branch | length > 0
+        fail_msg: >-
+          GitHub credential environment variables not set.
+          GITHUB_TOKEN={{ 'SET' if github_token | length > 0 else 'MISSING' }}
+          GITHUB_REPO_OWNER={{ 'SET' if github_repo_owner | length > 0 else 'MISSING' }}
+          GITHUB_REPO_NAME={{ 'SET' if github_repo_name | length > 0 else 'MISSING' }}
+          GITHUB_REPO_BRANCH={{ 'SET' if github_repo_branch | length > 0 else 'MISSING' }}
+          Attach the "GitHub Repository Credential" to this job template.
+        success_msg: "GitHub credential validation passed."
+
+    - name: Build CSV content for GitHub
+      ansible.builtin.set_fact:
+        csv_content_raw: "timestamp,controller_url,total_count,enabled_count,disabled_count,job_id\n{{ count_result.timestamp }},{{ count_result.controller_url }},{{ count_result.total_count }},{{ count_result.enabled_count }},{{ count_result.disabled_count }},{{ count_result.job_id }}\n"
+
+    - name: Push CSV to GitHub repository
+      ansible.builtin.uri:
+        url: "https://api.github.com/repos/{{ github_repo_owner }}/{{ github_repo_name }}/contents/output/{{ csv_filename }}"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ github_token }}"
+          Accept: "application/vnd.github+json"
+          X-GitHub-Api-Version: "2022-11-28"
+        body_format: json
+        body:
+          message: "chore: add managed node count report {{ count_result.timestamp }}"
+          content: "{{ csv_content_raw | b64encode }}"
+          branch: "{{ github_repo_branch }}"
+        status_code: [200, 201]
+      register: github_push_result
+
+    - name: Confirm CSV pushed to GitHub
+      ansible.builtin.debug:
+        msg: "CSV pushed to GitHub: {{ github_push_result.json.content.html_url }}"
+
+    # -----------------------------------------------------------------------
     # Publish count data as AAP job artifacts (accessible via API after run)
     # -----------------------------------------------------------------------
 
