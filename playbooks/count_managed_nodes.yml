@@ -9,7 +9,7 @@
     controller_token: "{{ lookup('env', 'CONTROLLER_OAUTH_TOKEN') }}"
     controller_user: "{{ lookup('env', 'CONTROLLER_USERNAME') }}"
     controller_pass: "{{ lookup('env', 'CONTROLLER_PASSWORD') }}"
-    job_id: "{{ lookup('env', 'AWX_JOB_ID') | default('N/A', true) }}"
+    job_id_env: "{{ lookup('env', 'AWX_JOB_ID') | default(lookup('env', 'TOWER_JOB_ID'), true) | default('', true) }}"
     run_timestamp: "{{ now(utc=True).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
 
   tasks:
@@ -64,6 +64,37 @@
                and api_root.json.apis is defined
                and 'controller' in api_root.json.apis
             else controller_host + '/api/v2'
+          }}
+
+    # -----------------------------------------------------------------------
+    # Resolve job ID — use env var if set, otherwise query API for the most
+    # recent running job against this playbook
+    # -----------------------------------------------------------------------
+
+    - name: Query API for current job ID
+      ansible.builtin.uri:
+        url: "{{ api_base }}/jobs/?playbook=playbooks/count_managed_nodes.yml&status=running&order_by=-id&page_size=1"
+        method: GET
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: 200
+        return_content: true
+      register: running_job_query
+      changed_when: false
+      when: job_id_env | length == 0
+
+    - name: Set job ID
+      ansible.builtin.set_fact:
+        job_id: >-
+          {{
+            job_id_env if job_id_env | length > 0
+            else (running_job_query.json.results[0].id | string
+                  if running_job_query.json.results | default([]) | length > 0
+                  else 'N/A')
           }}
 
     # -----------------------------------------------------------------------
