@@ -8,8 +8,10 @@ Validate end-to-end functionality after implementation.
 
 ## Prerequisites
 
-- Access to an AAP 2.4/2.5/2.6 or Ansible Tower 3.8.x controller (web UI)
-- Admin or Org Admin permissions to create credential types and credentials
+- **Test instance details recorded** in `docs/dev-environment.md` (see task T000):
+  - Controller URL (AAP 2.4/2.5/2.6 or Ansible Tower 3.8.x)
+  - Username with Admin or Org Admin permissions
+  - Password for that account
 - The SCM project synced and the playbook present at `playbooks/count_managed_nodes.yml`
 - At least one managed node registered with the controller (or accept count=0)
 

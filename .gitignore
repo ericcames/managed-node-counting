@@ -1,0 +1,5 @@
+# Developer test instance credentials — never commit
+docs/dev-environment.md
+
+# Runtime CSV output — committed manually per docs/limitations.md workflow
+output/managed_node_count.csv

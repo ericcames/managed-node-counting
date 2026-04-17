@@ -26,6 +26,18 @@ description: "Task list for ansible managed node count playbook"
 
 ---
 
+## Phase 0: Developer Environment (Pre-Implementation)
+
+**Purpose**: Collect test instance details from the developer before any code is written
+
+**⚠️ REQUIRED**: Complete before Phase 1 — all validation tasks depend on these values
+
+- [ ] T000 Prompt the developer for the following test instance details and record them in `docs/dev-environment.md` (gitignored): (1) **Controller URL** — the full HTTPS URL of the AAP or Ansible Tower instance available for testing (e.g. `https://aap.example.com`); (2) **Username** — an account with Org Admin or System Auditor permissions on that instance; (3) **Password** — the password for that account. Confirm the instance is reachable before proceeding.
+
+**Checkpoint**: `docs/dev-environment.md` exists with all three values confirmed reachable
+
+---
+
 ## Phase 1: Setup (Shared Infrastructure)
 
 **Purpose**: Create project directory skeleton and shared configuration

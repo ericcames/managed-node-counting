@@ -17,11 +17,11 @@ file in the project repository. All content uses `ansible.builtin` only (certifi
 **Language/Version**: YAML (Ansible playbook), ansible-core 2.15 minimum (AAP 2.4 baseline)
 **Primary Dependencies**: `ansible.builtin` (certified, no additional installs)
 **Storage**: `output/managed_node_count.csv` on execution node (manual git commit required)
-**Testing**: ansible-lint for syntax/style; manual integration test against live AAP/Tower
+**Testing**: ansible-lint for syntax/style; manual integration test against developer-supplied AAP/Tower instance (URL, username, password collected in T000 and stored in `docs/dev-environment.md`)
 **Target Platform**: Ansible Automation Platform 2.4, 2.5, 2.6; Ansible Tower 3.8.x (legacy)
 **Project Type**: Ansible automation content (playbook + documentation)
 **Performance Goals**: Playbook completes in under 60 seconds; API pagination handled for any estate size
-**Constraints**: No extra vars; certified content only; GUI-executable; output to job log + CSV
+**Constraints**: No extra vars; certified content only; GUI-executable; output to job log + CSV; requires a dedicated test AAP/Tower instance (developer-provided)
 **Scale/Scope**: Single playbook; supports any size Ansible estate (pagination-safe API query)
 
 ## Constitution Check
