@@ -177,7 +177,7 @@
         content: |
           timestamp,controller_url,total_count,enabled_count,disabled_count,job_id
           {{ count_result.timestamp }},{{ count_result.controller_url }},{{ count_result.total_count }},{{ count_result.enabled_count }},{{ count_result.disabled_count }},{{ count_result.job_id }}
-        dest: "{{ playbook_dir }}/../output/managed_node_count.csv"
+        dest: "{{ playbook_dir }}/../output/managed_node_count_{{ count_result.timestamp | replace(':', '-') }}.csv"
         mode: "0644"
 
     # -----------------------------------------------------------------------
@@ -186,7 +186,7 @@
 
     - name: Confirm CSV written
       ansible.builtin.debug:
-        msg: "CSV report written to output/managed_node_count.csv (overwritten each run — manual git commit required to persist)"
+        msg: "CSV report written to output/managed_node_count_{{ count_result.timestamp | replace(':', '-') }}.csv"
 
     # -----------------------------------------------------------------------
     # Publish count data as AAP job artifacts (accessible via API after run)

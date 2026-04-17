@@ -2,7 +2,7 @@
 docs/dev-environment.md
 
 # Runtime CSV output — committed manually per docs/limitations.md workflow
-output/managed_node_count.csv
+output/managed_node_count_*.csv
 
 # macOS / editor artifacts
 .DS_Store
