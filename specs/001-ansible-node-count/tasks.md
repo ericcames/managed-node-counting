@@ -121,7 +121,7 @@ description: "Task list for ansible managed node count playbook"
 - [x] T020 [P] Add `.gitignore` at repository root; decide whether to track `output/managed_node_count.csv` — if not tracked, add `output/managed_node_count.csv` to `.gitignore` and update `docs/limitations.md` accordingly; if tracked, document the manual commit workflow in `docs/README.md`
 - [x] T021 Run `ansible-lint playbooks/count_managed_nodes.yml` from repository root and fix all reported issues (profile: production)
 - [x] T022 [P] Add `docs/README.md` — top-level overview section (project purpose, supported platforms table from contract, quick-start link)
-- [ ] T023 Run quickstart.md validation steps end-to-end against a live AAP instance (or document as manual validation required if no instance available)
+- [x] T023 Run quickstart.md validation steps end-to-end against a live AAP instance (or document as manual validation required if no instance available)
 - [x] T024 [P] Update `specs/001-ansible-node-count/research.md` with any implementation discoveries (e.g. actual API response shape, pagination behaviour observed)
 
 ---
