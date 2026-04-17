@@ -32,7 +32,7 @@ description: "Task list for ansible managed node count playbook"
 
 **⚠️ REQUIRED**: Complete before Phase 1 — all validation tasks depend on these values
 
-- [ ] T000 Prompt the developer for the following test instance details and record them in `docs/dev-environment.md` (gitignored): (1) **Controller URL** — the full HTTPS URL of the AAP or Ansible Tower instance available for testing (e.g. `https://aap.example.com`); (2) **Username** — an account with Org Admin or System Auditor permissions on that instance; (3) **Password** — the password for that account. Confirm the instance is reachable before proceeding.
+- [x] T000 Prompt the developer for the following test instance details and record them in `docs/dev-environment.md` (gitignored): (1) **Controller URL** — the full HTTPS URL of the AAP or Ansible Tower instance available for testing (e.g. `https://aap.example.com`); (2) **Username** — an account with Org Admin or System Auditor permissions on that instance; (3) **Password** — the password for that account. Confirm the instance is reachable before proceeding.
 
 **Checkpoint**: `docs/dev-environment.md` exists with all three values confirmed reachable
 
@@ -42,10 +42,10 @@ description: "Task list for ansible managed node count playbook"
 
 **Purpose**: Create project directory skeleton and shared configuration
 
-- [ ] T001 Create project directory structure: `playbooks/`, `docs/`, `output/` at repository root
-- [ ] T002 Create `output/.gitkeep` placeholder file so the output directory is tracked by git
-- [ ] T003 Create `.ansible-lint` configuration file at repository root with rules appropriate for ansible-core 2.15 (profile: production, skip: yaml[line-length])
-- [ ] T004 [P] Create `docs/credential-type.yml` containing the Custom Credential Type input and injector YAML definitions (from `specs/001-ansible-node-count/contracts/playbook-interface.md`)
+- [x] T001 Create project directory structure: `playbooks/`, `docs/`, `output/` at repository root
+- [x] T002 Create `output/.gitkeep` placeholder file so the output directory is tracked by git
+- [x] T003 Create `.ansible-lint` configuration file at repository root with rules appropriate for ansible-core 2.15 (profile: production, skip: yaml[line-length])
+- [x] T004 [P] Create `docs/credential-type.yml` containing the Custom Credential Type input and injector YAML definitions (from `specs/001-ansible-node-count/contracts/playbook-interface.md`)
 
 ---
 
@@ -55,9 +55,9 @@ description: "Task list for ansible managed node count playbook"
 
 **⚠️ CRITICAL**: No user story implementation can begin until this phase is complete
 
-- [ ] T005 Create `playbooks/count_managed_nodes.yml` with playbook header: `hosts: localhost`, `gather_facts: false`, `connection: local`, and empty `tasks:` list
-- [ ] T006 Add assert task as the FIRST task in `playbooks/count_managed_nodes.yml`: use `ansible.builtin.assert` to verify `CONTROLLER_HOST` env var is non-empty; fail_msg must identify the missing variable by name and instruct operator to attach the credential
-- [ ] T007 Add second assert condition to the same task in `playbooks/count_managed_nodes.yml` to verify at least one of `CONTROLLER_OAUTH_TOKEN` or (`CONTROLLER_USERNAME` + `CONTROLLER_PASSWORD`) env vars are present; fail_msg must distinguish which auth method is missing
+- [x] T005 Create `playbooks/count_managed_nodes.yml` with playbook header: `hosts: localhost`, `gather_facts: false`, `connection: local`, and empty `tasks:` list
+- [x] T006 Add assert task as the FIRST task in `playbooks/count_managed_nodes.yml`: use `ansible.builtin.assert` to verify `CONTROLLER_HOST` env var is non-empty; fail_msg must identify the missing variable by name and instruct operator to attach the credential
+- [x] T007 Add second assert condition to the same task in `playbooks/count_managed_nodes.yml` to verify at least one of `CONTROLLER_OAUTH_TOKEN` or (`CONTROLLER_USERNAME` + `CONTROLLER_PASSWORD`) env vars are present; fail_msg must distinguish which auth method is missing
 
 **Checkpoint**: Assert block complete — job fails fast on missing credentials before any API calls
 
@@ -71,12 +71,12 @@ description: "Task list for ansible managed node count playbook"
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Add paginated API fetch task in `playbooks/count_managed_nodes.yml`: use `ansible.builtin.uri` with `url: "{{ lookup('env','CONTROLLER_HOST') }}/api/v2/hosts/"`, `headers: Authorization: "Bearer {{ lookup('env','CONTROLLER_OAUTH_TOKEN') }}"`, loop with `next` link until `next` is null; accumulate all host records into `all_hosts_raw` fact
-- [ ] T009 [US1] Add set_fact task in `playbooks/count_managed_nodes.yml` to extract host name list from `all_hosts_raw` and normalize to lowercase: `all_host_names: "{{ all_hosts_raw | map(attribute='name') | map('lower') | list }}"`
-- [ ] T010 [US1] Add set_fact task in `playbooks/count_managed_nodes.yml` to deduplicate the name list: `deduplicated_hosts: "{{ all_host_names | unique | list }}"` — this handles case-insensitive duplicates (IP vs FQDN deduplication is documented as a limitation)
-- [ ] T011 [US1] Add second API fetch task in `playbooks/count_managed_nodes.yml` to query `/api/v2/hosts/?enabled=true&page_size=1` and capture `.count` as `enabled_count_raw`; compute `disabled_count` as `deduplicated_hosts | length - enabled_count_raw`
-- [ ] T012 [US1] Add set_fact task in `playbooks/count_managed_nodes.yml` to build `count_result` dict: `timestamp` (ansible_date_time.iso8601), `controller_url` (CONTROLLER_HOST env var), `total_count` (deduplicated_hosts | length), `enabled_count`, `disabled_count`, `job_id` (AWX_JOB_ID env var or "N/A")
-- [ ] T013 [US1] Add `ansible.builtin.debug` task in `playbooks/count_managed_nodes.yml` to print the formatted "Managed Node Count Report" block to the job log matching the output format defined in `specs/001-ansible-node-count/contracts/playbook-interface.md`
+- [x] T008 [US1] Add paginated API fetch task in `playbooks/count_managed_nodes.yml`: use `ansible.builtin.uri` with `url: "{{ lookup('env','CONTROLLER_HOST') }}/api/v2/hosts/"`, `headers: Authorization: "Bearer {{ lookup('env','CONTROLLER_OAUTH_TOKEN') }}"`, loop with `next` link until `next` is null; accumulate all host records into `all_hosts_raw` fact
+- [x] T009 [US1] Add set_fact task in `playbooks/count_managed_nodes.yml` to extract host name list from `all_hosts_raw` and normalize to lowercase: `all_host_names: "{{ all_hosts_raw | map(attribute='name') | map('lower') | list }}"`
+- [x] T010 [US1] Add set_fact task in `playbooks/count_managed_nodes.yml` to deduplicate the name list: `deduplicated_hosts: "{{ all_host_names | unique | list }}"` — this handles case-insensitive duplicates (IP vs FQDN deduplication is documented as a limitation)
+- [x] T011 [US1] Add second API fetch task in `playbooks/count_managed_nodes.yml` to query `/api/v2/hosts/?enabled=true&page_size=1` and capture `.count` as `enabled_count_raw`; compute `disabled_count` as `deduplicated_hosts | length - enabled_count_raw`
+- [x] T012 [US1] Add set_fact task in `playbooks/count_managed_nodes.yml` to build `count_result` dict: `timestamp` (ansible_date_time.iso8601), `controller_url` (CONTROLLER_HOST env var), `total_count` (deduplicated_hosts | length), `enabled_count`, `disabled_count`, `job_id` (AWX_JOB_ID env var or "N/A")
+- [x] T013 [US1] Add `ansible.builtin.debug` task in `playbooks/count_managed_nodes.yml` to print the formatted "Managed Node Count Report" block to the job log matching the output format defined in `specs/001-ansible-node-count/contracts/playbook-interface.md`
 
 **Checkpoint**: User Story 1 is fully functional — launch job in GUI and verify job log output
 
@@ -90,8 +90,8 @@ description: "Task list for ansible managed node count playbook"
 
 ### Implementation for User Story 2
 
-- [ ] T014 [US2] Add `ansible.builtin.copy` task in `playbooks/count_managed_nodes.yml` to write CSV header + data row to `output/managed_node_count.csv` using the schema from `specs/001-ansible-node-count/data-model.md`: columns `timestamp,controller_url,total_count,enabled_count,disabled_count,job_id`; file is overwritten (not appended) each run
-- [ ] T015 [US2] Add `ansible.builtin.debug` task in `playbooks/count_managed_nodes.yml` to print CSV write confirmation to job log including the resolved file path
+- [x] T014 [US2] Add `ansible.builtin.copy` task in `playbooks/count_managed_nodes.yml` to write CSV header + data row to `output/managed_node_count.csv` using the schema from `specs/001-ansible-node-count/data-model.md`: columns `timestamp,controller_url,total_count,enabled_count,disabled_count,job_id`; file is overwritten (not appended) each run
+- [x] T015 [US2] Add `ansible.builtin.debug` task in `playbooks/count_managed_nodes.yml` to print CSV write confirmation to job log including the resolved file path
 
 **Checkpoint**: User Stories 1 and 2 complete — job log shows count report AND CSV is written to `output/`
 
@@ -105,10 +105,10 @@ description: "Task list for ansible managed node count playbook"
 
 ### Implementation for User Story 3
 
-- [ ] T016 [P] [US3] Write `docs/README.md` — AAP setup section: prerequisites, step-by-step Custom Credential Type creation (include YAML snippets from `docs/credential-type.yml`), Credential creation, Job Template configuration (inventory, project, playbook path, credential attachment, no extra vars), project sync, job launch, and expected job log output
-- [ ] T017 [P] [US3] Write `docs/README.md` — Ansible Tower setup section (after AAP section): Tower-specific UI differences, `/api/v1/` vs `/api/v2/` note, legacy support caveat, and pointer to limitations.md
-- [ ] T018 [P] [US3] Write `docs/limitations.md` with the following documented limitations: (1) CSV not auto-committed to git — manual retrieval required; (2) Deduplication is case-insensitive name-only — same host registered as IP and FQDN counts as 2 nodes; (3) Ansible Tower is legacy/end-of-life — best-effort only; (4) Count reflects state at execution time — no historical trending; (5) Credential must have API read access to `/api/v2/hosts/`; (6) Large estates may affect performance (pagination handled but runtime grows linearly); (7) `enabled_count` comes from a separate API call — minor race condition possible in dynamic environments
-- [ ] T019 [US3] Add "Known Limitations" section to `docs/README.md` summarising `docs/limitations.md` with a link to the full document
+- [x] T016 [P] [US3] Write `docs/README.md` — AAP setup section: prerequisites, step-by-step Custom Credential Type creation (include YAML snippets from `docs/credential-type.yml`), Credential creation, Job Template configuration (inventory, project, playbook path, credential attachment, no extra vars), project sync, job launch, and expected job log output
+- [x] T017 [P] [US3] Write `docs/README.md` — Ansible Tower setup section (after AAP section): Tower-specific UI differences, `/api/v1/` vs `/api/v2/` note, legacy support caveat, and pointer to limitations.md
+- [x] T018 [P] [US3] Write `docs/limitations.md` with the following documented limitations: (1) CSV not auto-committed to git — manual retrieval required; (2) Deduplication is case-insensitive name-only — same host registered as IP and FQDN counts as 2 nodes; (3) Ansible Tower is legacy/end-of-life — best-effort only; (4) Count reflects state at execution time — no historical trending; (5) Credential must have API read access to `/api/v2/hosts/`; (6) Large estates may affect performance (pagination handled but runtime grows linearly); (7) `enabled_count` comes from a separate API call — minor race condition possible in dynamic environments
+- [x] T019 [US3] Add "Known Limitations" section to `docs/README.md` summarising `docs/limitations.md` with a link to the full document
 
 **Checkpoint**: All three user stories complete — playbook functional, CSV output working, documentation ready
 
@@ -118,11 +118,11 @@ description: "Task list for ansible managed node count playbook"
 
 **Purpose**: Quality gates, cross-cutting cleanup, and final validation
 
-- [ ] T020 [P] Add `.gitignore` at repository root; decide whether to track `output/managed_node_count.csv` — if not tracked, add `output/managed_node_count.csv` to `.gitignore` and update `docs/limitations.md` accordingly; if tracked, document the manual commit workflow in `docs/README.md`
-- [ ] T021 Run `ansible-lint playbooks/count_managed_nodes.yml` from repository root and fix all reported issues (profile: production)
-- [ ] T022 [P] Add `docs/README.md` — top-level overview section (project purpose, supported platforms table from contract, quick-start link)
+- [x] T020 [P] Add `.gitignore` at repository root; decide whether to track `output/managed_node_count.csv` — if not tracked, add `output/managed_node_count.csv` to `.gitignore` and update `docs/limitations.md` accordingly; if tracked, document the manual commit workflow in `docs/README.md`
+- [x] T021 Run `ansible-lint playbooks/count_managed_nodes.yml` from repository root and fix all reported issues (profile: production)
+- [x] T022 [P] Add `docs/README.md` — top-level overview section (project purpose, supported platforms table from contract, quick-start link)
 - [ ] T023 Run quickstart.md validation steps end-to-end against a live AAP instance (or document as manual validation required if no instance available)
-- [ ] T024 [P] Update `specs/001-ansible-node-count/research.md` with any implementation discoveries (e.g. actual API response shape, pagination behaviour observed)
+- [x] T024 [P] Update `specs/001-ansible-node-count/research.md` with any implementation discoveries (e.g. actual API response shape, pagination behaviour observed)
 
 ---
 

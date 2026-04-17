@@ -3,3 +3,11 @@ docs/dev-environment.md
 
 # Runtime CSV output — committed manually per docs/limitations.md workflow
 output/managed_node_count.csv
+
+# macOS / editor artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+.vscode/
+.idea/

@@ -1,0 +1,6 @@
+profile: production
+skip_list:
+  - yaml[line-length]   # Long Jinja2 expressions in uri tasks are unavoidable
+  - no-changed-when     # uri tasks are read-only; changed_when: false added explicitly
+warn_list:
+  - experimental

@@ -1,0 +1,189 @@
+---
+- name: Count Managed Nodes in Ansible Automation Platform
+  hosts: localhost
+  gather_facts: false
+  connection: local
+
+  vars:
+    controller_host: "{{ lookup('env', 'CONTROLLER_HOST') | regex_replace('/$', '') }}"
+    controller_token: "{{ lookup('env', 'CONTROLLER_OAUTH_TOKEN') }}"
+    controller_user: "{{ lookup('env', 'CONTROLLER_USERNAME') }}"
+    controller_pass: "{{ lookup('env', 'CONTROLLER_PASSWORD') }}"
+    job_id: "{{ lookup('env', 'AWX_JOB_ID') | default('N/A', true) }}"
+    run_timestamp: "{{ now(utc=True).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+
+  tasks:
+
+    # -----------------------------------------------------------------------
+    # T006/T007 — Assert credentials are present before any API call is made
+    # -----------------------------------------------------------------------
+
+    - name: Assert required credentials are present
+      ansible.builtin.assert:
+        that:
+          - controller_host | length > 0
+          - controller_token | length > 0 or
+            (controller_user | length > 0 and controller_pass | length > 0)
+        fail_msg: >-
+          Required credential environment variables are not set.
+          CONTROLLER_HOST={{ 'SET' if controller_host | length > 0 else 'MISSING' }}
+          CONTROLLER_OAUTH_TOKEN={{ 'SET' if controller_token | length > 0 else 'not set' }}
+          CONTROLLER_USERNAME={{ 'SET' if controller_user | length > 0 else 'not set' }}
+          CONTROLLER_PASSWORD={{ 'SET' if controller_pass | length > 0 else 'not set' }}
+          Attach the "AAP Node Count Credential" to this job template and re-launch.
+          No extra variables are required.
+        success_msg: "Credential validation passed."
+
+    # -----------------------------------------------------------------------
+    # T008 — Detect API base path: AAP 2.x uses /api/controller/v2/
+    #         Ansible Tower and AAP 1.x use /api/v2/
+    # -----------------------------------------------------------------------
+
+    - name: Detect controller API version
+      ansible.builtin.uri:
+        url: "{{ controller_host }}/api/"
+        method: GET
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: [200, 404]
+        return_content: true
+      register: api_root
+      changed_when: false
+
+    - name: Set API base URL
+      ansible.builtin.set_fact:
+        api_base: >-
+          {{
+            controller_host + '/api/controller/v2'
+            if api_root.status == 200
+               and api_root.json is defined
+               and api_root.json.apis is defined
+               and 'controller' in api_root.json.apis
+            else controller_host + '/api/v2'
+          }}
+
+    # -----------------------------------------------------------------------
+    # T008 (cont.) — Fetch all hosts with pagination
+    # -----------------------------------------------------------------------
+
+    - name: Fetch first page of hosts
+      ansible.builtin.uri:
+        url: "{{ api_base }}/hosts/?page_size=200"
+        method: GET
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: 200
+        return_content: true
+      register: first_page
+      changed_when: false
+
+    - name: Set total page count and initialize accumulator
+      ansible.builtin.set_fact:
+        all_hosts_raw: "{{ first_page.json.results }}"
+        total_pages: "{{ [(first_page.json.count / 200) | round(0, 'ceil') | int, 1] | max }}"
+
+    - name: Fetch remaining host pages
+      ansible.builtin.uri:
+        url: "{{ api_base }}/hosts/?page_size=200&page={{ item }}"
+        method: GET
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: 200
+        return_content: true
+      loop: "{{ range(2, total_pages | int + 1) | list }}"
+      register: remaining_pages
+      changed_when: false
+      when: total_pages | int > 1
+
+    - name: Append remaining pages to accumulator
+      ansible.builtin.set_fact:
+        all_hosts_raw: "{{ all_hosts_raw + (remaining_pages.results | map(attribute='json.results') | flatten | list) }}"
+      when: total_pages | int > 1
+
+    # -----------------------------------------------------------------------
+    # T009 — Normalize host names to lowercase
+    # -----------------------------------------------------------------------
+
+    - name: Normalize host names to lowercase
+      ansible.builtin.set_fact:
+        normalized_names: "{{ all_hosts_raw | map(attribute='name') | map('lower') | list }}"
+        normalized_enabled: "{{ all_hosts_raw | selectattr('enabled', 'equalto', true) | map(attribute='name') | map('lower') | list }}"
+
+    # -----------------------------------------------------------------------
+    # T010 — Deduplicate by normalized name
+    #         Note: IP vs FQDN for the same host are NOT auto-resolved.
+    #         See docs/limitations.md for details.
+    # -----------------------------------------------------------------------
+
+    - name: Deduplicate host names
+      ansible.builtin.set_fact:
+        deduplicated_hosts: "{{ normalized_names | unique | list }}"
+        deduplicated_enabled: "{{ normalized_enabled | unique | list }}"
+
+    # -----------------------------------------------------------------------
+    # T011/T012 — Build count result
+    # -----------------------------------------------------------------------
+
+    - name: Build count result
+      ansible.builtin.set_fact:
+        count_result:
+          timestamp: "{{ run_timestamp }}"
+          controller_url: "{{ controller_host }}"
+          total_count: "{{ deduplicated_hosts | length }}"
+          enabled_count: "{{ deduplicated_enabled | length }}"
+          disabled_count: "{{ (deduplicated_hosts | length) - (deduplicated_enabled | length) }}"
+          job_id: "{{ job_id }}"
+
+    # -----------------------------------------------------------------------
+    # T013 — Print structured report to job log
+    # -----------------------------------------------------------------------
+
+    - name: Print managed node count report
+      ansible.builtin.debug:
+        msg:
+          - "=============================================="
+          - "  Managed Node Count Report"
+          - "  Controller : {{ count_result.controller_url }}"
+          - "  API Base   : {{ api_base }}"
+          - "  Timestamp  : {{ count_result.timestamp }}"
+          - "  Job ID     : {{ count_result.job_id }}"
+          - "----------------------------------------------"
+          - "  Total Managed Nodes : {{ count_result.total_count }}"
+          - "  Enabled Nodes       : {{ count_result.enabled_count }}"
+          - "  Disabled Nodes      : {{ count_result.disabled_count }}"
+          - "=============================================="
+          - "NOTE: Deduplication is case-insensitive name normalization."
+          - "Hosts registered as both IP and FQDN count as separate nodes."
+          - "See docs/limitations.md for full details."
+
+    # -----------------------------------------------------------------------
+    # T014 — Write CSV report to output/managed_node_count.csv
+    # -----------------------------------------------------------------------
+
+    - name: Write CSV report
+      ansible.builtin.copy:
+        content: |
+          timestamp,controller_url,total_count,enabled_count,disabled_count,job_id
+          {{ count_result.timestamp }},{{ count_result.controller_url }},{{ count_result.total_count }},{{ count_result.enabled_count }},{{ count_result.disabled_count }},{{ count_result.job_id }}
+        dest: "{{ playbook_dir }}/../output/managed_node_count.csv"
+        mode: "0644"
+
+    # -----------------------------------------------------------------------
+    # T015 — Confirm CSV write in job log
+    # -----------------------------------------------------------------------
+
+    - name: Confirm CSV written
+      ansible.builtin.debug:
+        msg: "CSV report written to output/managed_node_count.csv (overwritten each run — manual git commit required to persist)"

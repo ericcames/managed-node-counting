@@ -5,10 +5,23 @@
 
 ---
 
+## Implementation Discovery: AAP 2.x Uses /api/controller/v2/
+
+**Discovered during implementation** (2026-04-17): AAP 2.x (with unified platform
+gateway) exposes its API at `/api/controller/v2/` rather than `/api/v2/`. The
+`/api/` endpoint returns a JSON gateway listing available services:
+`{"apis":{"gateway":"/api/gateway/","controller":"/api/controller/","eda":"/api/eda/","galaxy":"/api/galaxy/"}}`.
+The playbook auto-detects this by probing `/api/` and falls back to `/api/v2/`
+for Tower and AAP 1.x instances that do not return this gateway structure.
+
+---
+
 ## Decision 1: API Approach for Counting Managed Nodes
 
 **Decision**: Use `ansible.builtin.uri` to call the AAP/Tower REST API endpoint
 `GET /api/v2/hosts/?page_size=1` and read the `count` field from the response.
+**Updated**: The actual endpoint used depends on auto-detected API base path
+(`/api/controller/v2/hosts/` for AAP 2.x, `/api/v2/hosts/` for Tower/AAP 1.x).
 
 **Rationale**: `ansible.builtin.uri` is part of `ansible.builtin`, which is
 Red Hat certified content included with every AAP installation. No additional
