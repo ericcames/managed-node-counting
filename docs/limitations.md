@@ -104,3 +104,25 @@ A host that appears in multiple inventories — once with `enabled: true` and
 once with `enabled: false` — will be counted as **enabled** in the enabled
 count after deduplication (any enabled instance marks the name as enabled).
 This matches the most permissive interpretation of node state.
+
+---
+
+## 10. Host Metrics Field Names May Vary by AAP Version
+
+The `host_metrics` endpoint was introduced in AAP 2.4. The field names used in
+this playbook (`automated_counter`, `last_automation`) are based on Red Hat
+documentation and the AWX open-source project. These names are consistent across
+AAP 2.4–2.6 but may differ on future releases or customised installations.
+
+**If metrics show unexpected values** (e.g., zeros on a system known to have
+automation history), check the actual API schema on your instance:
+
+```
+GET https://<your-aap-host>/api/gateway/v1/docs/schema/?format=json
+```
+
+Search for `host_metrics` in the schema output to confirm the exact field names.
+
+**Impact**: If a field name differs, the affected metric column will show `0` or
+an empty string rather than failing the job. The playbook uses `| default(0)` and
+`| default('')` guards on all metric field accesses.
