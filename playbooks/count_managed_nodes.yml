@@ -187,3 +187,18 @@
     - name: Confirm CSV written
       ansible.builtin.debug:
         msg: "CSV report written to output/managed_node_count.csv (overwritten each run — manual git commit required to persist)"
+
+    # -----------------------------------------------------------------------
+    # Publish count data as AAP job artifacts (accessible via API after run)
+    # -----------------------------------------------------------------------
+
+    - name: Publish count result as AAP artifacts
+      ansible.builtin.set_stats:
+        data:
+          managed_node_count_timestamp: "{{ count_result.timestamp }}"
+          managed_node_count_controller: "{{ count_result.controller_url }}"
+          managed_node_count_total: "{{ count_result.total_count }}"
+          managed_node_count_enabled: "{{ count_result.enabled_count }}"
+          managed_node_count_disabled: "{{ count_result.disabled_count }}"
+          managed_node_count_job_id: "{{ count_result.job_id }}"
+        per_host: false
