@@ -185,15 +185,43 @@ See docs/limitations.md for full details.
 
 ### CSV File
 
-After a successful run, `output/managed_node_count.csv` contains:
+After a successful run, `output/managed_node_count.csv` contains 11 columns:
 
 ```
-timestamp,controller_url,total_count,enabled_count,disabled_count,job_id
-2026-04-17T14:32:00Z,https://aap.example.com,1427,1389,38,42
+timestamp,controller_url,total_count,enabled_count,disabled_count,job_id,metrics_available,hosts_in_metrics,hosts_automated,hosts_not_automated,most_recent_automation
+2026-04-17T18:30:00Z,https://aap.example.com,95,90,5,142,True,142,130,12,2026-04-17T18:30:00Z
 ```
 
-The file is **overwritten** on each run. To persist it, manually commit it to
-your SCM repository after each job. See [limitations.md](limitations.md#2-csv-is-not-automatically-committed-to-git).
+When the host metrics endpoint is not available (older Tower), the last five
+columns are empty:
+
+```
+2026-04-17T18:30:00Z,https://aap.example.com,95,90,5,142,False,,,,
+```
+
+The file is **overwritten** on each run and also pushed to the GitHub repository
+`output/` directory automatically. See [limitations.md](limitations.md).
+
+---
+
+### Host Metrics
+
+On AAP 2.4 and later, the playbook also queries the `host_metrics` endpoint to
+report automation coverage:
+
+| Field | Description |
+|-------|-------------|
+| `hosts_in_metrics` | Total hosts tracked by AAP's metrics system |
+| `hosts_automated` | Hosts that have been automated at least once |
+| `hosts_not_automated` | Hosts registered but never automated |
+| `most_recent_automation` | ISO timestamp of the most recent automation run |
+
+**Graceful degradation**: If the endpoint is unavailable (Ansible Tower or AAP 1.x),
+the playbook logs "Not available on this platform" and continues without error.
+The host metrics columns in the CSV will be empty.
+
+**Permissions**: The same credential used for host counts also covers the
+`host_metrics` endpoint. No additional credential configuration is needed.
 
 ---
 
@@ -210,5 +238,6 @@ your SCM repository after each job. See [limitations.md](limitations.md#2-csv-is
 | 7 | Performance degrades on very large estates | May exceed 60s for 10,000+ hosts |
 | 8 | API path auto-detected; fallback to `/api/v2/` | May fail on unusual configurations |
 | 9 | Enabled/disabled edge case with multi-inventory hosts | Any enabled instance marks name as enabled |
+| 10 | Host metrics field names may vary by AAP version | `automated_counter` inferred — see limitations.md |
 
 See [limitations.md](limitations.md) for full details on each item.

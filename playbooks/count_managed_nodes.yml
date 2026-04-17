@@ -164,6 +164,94 @@
         deduplicated_enabled: "{{ normalized_enabled | unique | list }}"
 
     # -----------------------------------------------------------------------
+    # T002/T003 — Probe host_metrics endpoint; set availability flag + defaults
+    # -----------------------------------------------------------------------
+
+    - name: Probe host metrics endpoint
+      ansible.builtin.uri:
+        url: "{{ api_base }}/host_metrics/?page_size=1"
+        method: GET
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: [200, 404, 403, 500]
+        return_content: true
+      register: metrics_probe
+      changed_when: false
+      failed_when: false
+
+    - name: Set host metrics defaults
+      ansible.builtin.set_fact:
+        host_metrics_available: "{{ metrics_probe.status == 200 }}"
+        host_metrics_summary:
+          available: false
+          total_in_metrics: 0
+          automated: 0
+          not_automated: 0
+          most_recent_automation: ""
+
+    - name: Log host metrics availability
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            'Host metrics endpoint available.' if metrics_probe.status == 200
+            else 'Host metrics not available on this platform (404).' if metrics_probe.status == 404
+            else 'Host metrics not available — permission denied (403). Ensure credential has System Auditor role.' if metrics_probe.status == 403
+            else 'Host metrics returned unexpected status ' + (metrics_probe.status | string) + '; skipping metrics.'
+          }}
+
+    # -----------------------------------------------------------------------
+    # T004/T005/T006 — Fetch and aggregate host metrics (when available)
+    # -----------------------------------------------------------------------
+
+    - name: Fetch automated host count
+      ansible.builtin.uri:
+        url: "{{ api_base }}/host_metrics/?automated_counter__gt=0&page_size=1"
+        method: GET
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: [200, 400]
+        return_content: true
+      register: metrics_automated
+      changed_when: false
+      failed_when: false
+      when: host_metrics_available
+
+    - name: Fetch most recent automation date
+      ansible.builtin.uri:
+        url: "{{ api_base }}/host_metrics/?ordering=-last_automation&page_size=1"
+        method: GET
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: [200]
+        return_content: true
+      register: metrics_recent
+      changed_when: false
+      failed_when: false
+      when: host_metrics_available
+
+    - name: Build host metrics summary
+      ansible.builtin.set_fact:
+        host_metrics_summary:
+          available: true
+          total_in_metrics: "{{ metrics_probe.json.count | int }}"
+          automated: "{{ metrics_automated.json.count | default(0) | int }}"
+          not_automated: "{{ metrics_probe.json.count | int - metrics_automated.json.count | default(0) | int }}"
+          most_recent_automation: "{{ metrics_recent.json.results[0].last_automation | default('') if metrics_recent.json.results | default([]) | length > 0 else '' }}"
+      when: host_metrics_available
+
+    # -----------------------------------------------------------------------
     # T011/T012 — Build count result
     # -----------------------------------------------------------------------
 
@@ -176,6 +264,11 @@
           enabled_count: "{{ deduplicated_enabled | length }}"
           disabled_count: "{{ (deduplicated_hosts | length) - (deduplicated_enabled | length) }}"
           job_id: "{{ job_id }}"
+          metrics_available: "{{ host_metrics_summary.available }}"
+          hosts_in_metrics: "{{ host_metrics_summary.total_in_metrics }}"
+          hosts_automated: "{{ host_metrics_summary.automated }}"
+          hosts_not_automated: "{{ host_metrics_summary.not_automated }}"
+          most_recent_automation: "{{ host_metrics_summary.most_recent_automation }}"
 
     # -----------------------------------------------------------------------
     # T013 — Print structured report to job log
@@ -183,21 +276,36 @@
 
     - name: Print managed node count report
       ansible.builtin.debug:
-        msg:
-          - "=============================================="
-          - "  Managed Node Count Report"
-          - "  Controller : {{ count_result.controller_url }}"
-          - "  API Base   : {{ api_base }}"
-          - "  Timestamp  : {{ count_result.timestamp }}"
-          - "  Job ID     : {{ count_result.job_id }}"
-          - "----------------------------------------------"
-          - "  Total Managed Nodes : {{ count_result.total_count }}"
-          - "  Enabled Nodes       : {{ count_result.enabled_count }}"
-          - "  Disabled Nodes      : {{ count_result.disabled_count }}"
-          - "=============================================="
-          - "NOTE: Deduplication is case-insensitive name normalization."
-          - "Hosts registered as both IP and FQDN count as separate nodes."
-          - "See docs/limitations.md for full details."
+        msg: >-
+          {{
+            [
+              '==============================================',
+              '  Managed Node Count Report',
+              '  Controller : ' + count_result.controller_url,
+              '  API Base   : ' + api_base,
+              '  Timestamp  : ' + count_result.timestamp,
+              '  Job ID     : ' + count_result.job_id | string,
+              '----------------------------------------------',
+              '  Total Managed Nodes : ' + count_result.total_count | string,
+              '  Enabled Nodes       : ' + count_result.enabled_count | string,
+              '  Disabled Nodes      : ' + count_result.disabled_count | string,
+              '----------------------------------------------',
+            ] + (
+              [
+                '  Host Metrics (from host_metrics endpoint)',
+                '  Hosts in Metrics    : ' + count_result.hosts_in_metrics | string,
+                '  Automated (>=1 run) : ' + count_result.hosts_automated | string,
+                '  Never Automated     : ' + count_result.hosts_not_automated | string,
+                '  Most Recent Run     : ' + count_result.most_recent_automation,
+              ] if count_result.metrics_available | bool
+              else ['  Host Metrics        : Not available on this platform']
+            ) + [
+              '==============================================',
+              'NOTE: Deduplication is case-insensitive name normalization.',
+              'Hosts registered as both IP and FQDN count as separate nodes.',
+              'See docs/limitations.md for full details.',
+            ]
+          }}
 
     # -----------------------------------------------------------------------
     # T014 — Write CSV report to output/managed_node_count.csv
@@ -206,8 +314,8 @@
     - name: Write CSV report
       ansible.builtin.copy:
         content: |
-          timestamp,controller_url,total_count,enabled_count,disabled_count,job_id
-          {{ count_result.timestamp }},{{ count_result.controller_url }},{{ count_result.total_count }},{{ count_result.enabled_count }},{{ count_result.disabled_count }},{{ count_result.job_id }}
+          timestamp,controller_url,total_count,enabled_count,disabled_count,job_id,metrics_available,hosts_in_metrics,hosts_automated,hosts_not_automated,most_recent_automation
+          {{ count_result.timestamp }},{{ count_result.controller_url }},{{ count_result.total_count }},{{ count_result.enabled_count }},{{ count_result.disabled_count }},{{ count_result.job_id }},{{ count_result.metrics_available }},{{ count_result.hosts_in_metrics }},{{ count_result.hosts_automated }},{{ count_result.hosts_not_automated }},{{ count_result.most_recent_automation }}
         dest: "{{ playbook_dir }}/../output/managed_node_count_{{ count_result.timestamp | replace(':', '-') }}.csv"
         mode: "0644"
 
@@ -249,7 +357,7 @@
 
     - name: Build CSV content for GitHub
       ansible.builtin.set_fact:
-        csv_content_raw: "timestamp,controller_url,total_count,enabled_count,disabled_count,job_id\n{{ count_result.timestamp }},{{ count_result.controller_url }},{{ count_result.total_count }},{{ count_result.enabled_count }},{{ count_result.disabled_count }},{{ count_result.job_id }}\n"
+        csv_content_raw: "timestamp,controller_url,total_count,enabled_count,disabled_count,job_id,metrics_available,hosts_in_metrics,hosts_automated,hosts_not_automated,most_recent_automation\n{{ count_result.timestamp }},{{ count_result.controller_url }},{{ count_result.total_count }},{{ count_result.enabled_count }},{{ count_result.disabled_count }},{{ count_result.job_id }},{{ count_result.metrics_available }},{{ count_result.hosts_in_metrics }},{{ count_result.hosts_automated }},{{ count_result.hosts_not_automated }},{{ count_result.most_recent_automation }}\n"
 
     - name: Push CSV to GitHub repository
       ansible.builtin.uri:
@@ -284,4 +392,9 @@
           managed_node_count_enabled: "{{ count_result.enabled_count }}"
           managed_node_count_disabled: "{{ count_result.disabled_count }}"
           managed_node_count_job_id: "{{ count_result.job_id }}"
+          managed_node_count_metrics_available: "{{ count_result.metrics_available }}"
+          managed_node_count_hosts_in_metrics: "{{ count_result.hosts_in_metrics }}"
+          managed_node_count_hosts_automated: "{{ count_result.hosts_automated }}"
+          managed_node_count_hosts_not_automated: "{{ count_result.hosts_not_automated }}"
+          managed_node_count_most_recent_automation: "{{ count_result.most_recent_automation }}"
         per_host: false
