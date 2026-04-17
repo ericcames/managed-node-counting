@@ -177,6 +177,18 @@ A successful run prints:
   Total Managed Nodes : 1427
   Enabled Nodes       : 1389
   Disabled Nodes      : 38
+----------------------------------------------
+  Host Metrics (from host_metrics endpoint)
+  Hosts in Metrics    : 1389
+  Automated (>=1 run) : 1350
+  Never Automated     : 39
+  Most Recent Run     : 2026-04-17T14:30:00Z
+----------------------------------------------
+  Recent Host Activity (last 10 jobs)
+  web01.example.com : ok (2026-04-17T14:30:00Z)
+  db02.example.com  : failed (2026-04-17T14:29:00Z)
+  Hosts with failures : 1
+  Hosts successful    : 1
 ==============================================
 NOTE: Deduplication is case-insensitive name normalization.
 Hosts registered as both IP and FQDN count as separate nodes.
@@ -185,22 +197,46 @@ See docs/limitations.md for full details.
 
 ### CSV File
 
-After a successful run, `output/managed_node_count.csv` contains 11 columns:
+After a successful run, `output/managed_node_count.csv` contains 13 columns:
 
 ```
-timestamp,controller_url,total_count,enabled_count,disabled_count,job_id,metrics_available,hosts_in_metrics,hosts_automated,hosts_not_automated,most_recent_automation
-2026-04-17T18:30:00Z,https://aap.example.com,95,90,5,142,True,142,130,12,2026-04-17T18:30:00Z
+timestamp,controller_url,total_count,enabled_count,disabled_count,job_id,metrics_available,hosts_in_metrics,hosts_automated,hosts_not_automated,most_recent_automation,hosts_with_recent_failures,hosts_with_recent_success
+2026-04-17T18:30:00Z,https://aap.example.com,95,90,5,142,True,142,130,12,2026-04-17T18:30:00Z,1,10
 ```
 
-When the host metrics endpoint is not available (older Tower), the last five
-columns are empty:
+When the host metrics endpoint is not available (older Tower), columns 8–11 are
+empty. When no job event history exists, columns 12–13 are empty:
 
 ```
-2026-04-17T18:30:00Z,https://aap.example.com,95,90,5,142,False,,,,
+2026-04-17T18:30:00Z,https://aap.example.com,95,90,5,142,False,,,,,, 
 ```
 
 The file is **overwritten** on each run and also pushed to the GitHub repository
 `output/` directory automatically. See [limitations.md](limitations.md).
+
+---
+
+### Recent Host Activity
+
+On AAP 2.4 and later, the playbook queries the `job_events` endpoint across the
+last 10 completed jobs to report per-host automation status:
+
+| Field | Description |
+|-------|-------------|
+| `hosts_with_recent_failures` | Hosts whose last recorded event was `failed` or `unreachable` |
+| `hosts_with_recent_success` | Hosts whose last recorded event was `ok` |
+
+The "Recent Host Activity" section in the job log lists each host with its most
+recent event status (`ok`, `failed`, `unreachable`, `skipped`) and the ISO
+timestamp of that event.
+
+**Graceful degradation**: If no completed jobs exist in AAP history, or if the
+event endpoint returns no host-level events, the job log shows "No recent job
+event data available" and the two CSV columns are empty. The job always succeeds.
+
+**Requirements**: At least one prior completed job run (other than the count
+playbook itself) must exist in AAP history. The count job's own events are
+excluded from the query.
 
 ---
 
@@ -239,5 +275,6 @@ The host metrics columns in the CSV will be empty.
 | 8 | API path auto-detected; fallback to `/api/v2/` | May fail on unusual configurations |
 | 9 | Enabled/disabled edge case with multi-inventory hosts | Any enabled instance marks name as enabled |
 | 10 | Host metrics field names may vary by AAP version | `automated_counter` inferred — see limitations.md |
+| 11 | Job event history may be purged by AAP retention | Activity section shows "No recent data" on active systems |
 
 See [limitations.md](limitations.md) for full details on each item.

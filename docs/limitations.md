@@ -126,3 +126,36 @@ Search for `host_metrics` in the schema output to confirm the exact field names.
 **Impact**: If a field name differs, the affected metric column will show `0` or
 an empty string rather than failing the job. The playbook uses `| default(0)` and
 `| default('')` guards on all metric field accesses.
+
+---
+
+## 11. Job Event History May Be Purged by AAP Data Retention
+
+AAP runs background cleanup tasks (`AwxTask` cleanup jobs) that purge old job
+events and job records based on the configured data retention policy. On systems
+with aggressive retention settings, the "Recent Host Activity" section may show
+"No recent job event data available" even on active systems where automation is
+running.
+
+**Common retention defaults**: AAP retains job events for 90 days by default.
+This can be reduced in `Settings → System → Cleanup jobs`. Check your retention
+policy if the activity section is unexpectedly empty.
+
+**Impact**: The job always succeeds; the activity section gracefully degrades to
+the "No recent job event data available" message and the two event columns in the
+CSV are empty.
+
+---
+
+## 12. Job Event Query Includes Only Host-Level Events
+
+The playbook queries `job_events` with `event__startswith=runner_on`, which
+captures host-level module execution events (`runner_on_ok`, `runner_on_failed`,
+`runner_on_unreachable`, `runner_on_skipped`, `runner_on_changed`). It excludes
+playbook-level events such as `playbook_on_start`, `playbook_on_task_start`, and
+`runner_on_no_hosts`.
+
+**Impact**: A host that only appears in playbook-level events (e.g., the
+controller itself acting as a delegate) will not appear in the "Recent Host
+Activity" section. This is intentional — the section reports hosts that had
+actual module execution against them.

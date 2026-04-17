@@ -252,6 +252,137 @@
       when: host_metrics_available
 
     # -----------------------------------------------------------------------
+    # T002/T003 — Fetch last 10 completed jobs; build IDs list + defaults
+    # -----------------------------------------------------------------------
+
+    - name: Fetch last 10 completed jobs
+      ansible.builtin.uri:
+        url: "{{ api_base }}/jobs/?status__in=successful,failed&order_by=-id&page_size=10"
+        method: GET
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: [200]
+        return_content: true
+      register: recent_jobs
+      changed_when: false
+      failed_when: false
+
+    - name: Build recent job IDs list and set job events defaults
+      ansible.builtin.set_fact:
+        recent_job_ids: >-
+          {{
+            recent_jobs.json.results | default([])
+            | map(attribute='id') | map('string')
+            | select('ne', job_id | string) | list
+          }}
+        job_events_available: false
+        hosts_with_recent_failures: ""
+        hosts_with_recent_success: ""
+        host_activity_list: []
+
+    - name: Set recent job IDs string
+      ansible.builtin.set_fact:
+        recent_job_ids_str: "{{ recent_job_ids | join(',') }}"
+
+    - name: Log recent jobs status
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            'Found ' + (recent_job_ids | length | string) + ' recent completed job(s) for event query.'
+            if recent_job_ids | length > 0
+            else 'No completed jobs found for event query — skipping host activity section.'
+          }}
+
+    # -----------------------------------------------------------------------
+    # T004–T010 — Fetch job events; aggregate per-host last status
+    # -----------------------------------------------------------------------
+
+    - name: Fetch job events page 1
+      ansible.builtin.uri:
+        url: "{{ api_base }}/job_events/?job__in={{ recent_job_ids_str }}&host_name__gt=&event__startswith=runner_on&order_by=-created&page_size=200"
+        method: GET
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: [200]
+        return_content: true
+      register: job_events_page1
+      changed_when: false
+      failed_when: false
+      when: recent_job_ids | length > 0
+
+    - name: Set initial job events accumulator
+      ansible.builtin.set_fact:
+        all_job_events: "{{ job_events_page1.json.results | default([]) }}"
+        job_events_total_pages: "{{ [(job_events_page1.json.count | default(0) | int / 200) | round(0, 'ceil') | int, 1] | max }}"
+      when: recent_job_ids | length > 0
+
+    - name: Fetch remaining job event pages
+      ansible.builtin.uri:
+        url: "{{ api_base }}/job_events/?job__in={{ recent_job_ids_str }}&host_name__gt=&event__startswith=runner_on&order_by=-created&page_size=200&page={{ item }}"
+        method: GET
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: [200]
+        return_content: true
+      loop: "{{ range(2, job_events_total_pages | int + 1) | list }}"
+      register: job_events_remaining
+      changed_when: false
+      when: recent_job_ids | length > 0 and job_events_total_pages | int > 1
+
+    - name: Accumulate all job event pages
+      ansible.builtin.set_fact:
+        all_job_events: "{{ all_job_events + (job_events_remaining.results | map(attribute='json.results') | flatten | list) }}"
+      when: recent_job_ids | length > 0 and job_events_total_pages | int > 1
+
+    - name: Get unique event hostnames
+      ansible.builtin.set_fact:
+        event_hosts: >-
+          {{
+            all_job_events | default([])
+            | map(attribute='host_name') | map('lower')
+            | select('ne', '') | unique | list
+          }}
+      when: recent_job_ids | length > 0
+
+    - name: Build per-host last-status list
+      ansible.builtin.set_fact:
+        host_activity_list: >-
+          {{
+            host_activity_list | default([]) + [{
+              'hostname': item,
+              'last_status': (
+                'ok' if (all_job_events | selectattr('host_name', 'equalto', item) | sort(attribute='created', reverse=true) | first).event | default('') in ['runner_on_ok', 'runner_on_changed']
+                else 'failed' if (all_job_events | selectattr('host_name', 'equalto', item) | sort(attribute='created', reverse=true) | first).event | default('') == 'runner_on_failed'
+                else 'unreachable' if (all_job_events | selectattr('host_name', 'equalto', item) | sort(attribute='created', reverse=true) | first).event | default('') == 'runner_on_unreachable'
+                else 'skipped' if (all_job_events | selectattr('host_name', 'equalto', item) | sort(attribute='created', reverse=true) | first).event | default('') == 'runner_on_skipped'
+                else 'unknown'
+              ),
+              'last_seen': (all_job_events | selectattr('host_name', 'equalto', item) | sort(attribute='created', reverse=true) | first).created | default('')
+            }]
+          }}
+      loop: "{{ event_hosts }}"
+      when: recent_job_ids | length > 0 and event_hosts | length > 0
+
+    - name: Build job event aggregates
+      ansible.builtin.set_fact:
+        job_events_available: true
+        hosts_with_recent_failures: "{{ host_activity_list | selectattr('last_status', 'in', ['failed', 'unreachable']) | list | length }}"
+        hosts_with_recent_success: "{{ host_activity_list | selectattr('last_status', 'equalto', 'ok') | list | length }}"
+      when: recent_job_ids | length > 0 and event_hosts | default([]) | length > 0
+
+    # -----------------------------------------------------------------------
     # T011/T012 — Build count result
     # -----------------------------------------------------------------------
 
@@ -269,6 +400,20 @@
           hosts_automated: "{{ host_metrics_summary.automated }}"
           hosts_not_automated: "{{ host_metrics_summary.not_automated }}"
           most_recent_automation: "{{ host_metrics_summary.most_recent_automation }}"
+          job_events_available: "{{ job_events_available }}"
+          hosts_with_recent_failures: "{{ hosts_with_recent_failures }}"
+          hosts_with_recent_success: "{{ hosts_with_recent_success }}"
+
+    # -----------------------------------------------------------------------
+    # T012 — Pre-build host activity report lines (one per host)
+    # -----------------------------------------------------------------------
+
+    - name: Build host activity report lines
+      ansible.builtin.set_fact:
+        host_activity_lines: >-
+          {{ (host_activity_lines | default([])) + ['  ' ~ item.hostname ~ ' : ' ~ item.last_status ~ ' (' ~ item.last_seen ~ ')'] }}
+      loop: "{{ host_activity_list }}"
+      when: job_events_available | bool
 
     # -----------------------------------------------------------------------
     # T013 — Print structured report to job log
@@ -299,6 +444,12 @@
                 '  Most Recent Run     : ' + count_result.most_recent_automation,
               ] if count_result.metrics_available | bool
               else ['  Host Metrics        : Not available on this platform']
+            ) + ['----------------------------------------------'] + (
+              ['  Recent Host Activity (last 10 jobs)'] + (host_activity_lines | default([])) + [
+                '  Hosts with failures : ' + count_result.hosts_with_recent_failures | string,
+                '  Hosts successful    : ' + count_result.hosts_with_recent_success | string,
+              ] if count_result.job_events_available | bool
+              else ['  Recent Host Activity : No recent job event data available']
             ) + [
               '==============================================',
               'NOTE: Deduplication is case-insensitive name normalization.',
@@ -314,8 +465,8 @@
     - name: Write CSV report
       ansible.builtin.copy:
         content: |
-          timestamp,controller_url,total_count,enabled_count,disabled_count,job_id,metrics_available,hosts_in_metrics,hosts_automated,hosts_not_automated,most_recent_automation
-          {{ count_result.timestamp }},{{ count_result.controller_url }},{{ count_result.total_count }},{{ count_result.enabled_count }},{{ count_result.disabled_count }},{{ count_result.job_id }},{{ count_result.metrics_available }},{{ count_result.hosts_in_metrics }},{{ count_result.hosts_automated }},{{ count_result.hosts_not_automated }},{{ count_result.most_recent_automation }}
+          timestamp,controller_url,total_count,enabled_count,disabled_count,job_id,metrics_available,hosts_in_metrics,hosts_automated,hosts_not_automated,most_recent_automation,hosts_with_recent_failures,hosts_with_recent_success
+          {{ count_result.timestamp }},{{ count_result.controller_url }},{{ count_result.total_count }},{{ count_result.enabled_count }},{{ count_result.disabled_count }},{{ count_result.job_id }},{{ count_result.metrics_available }},{{ count_result.hosts_in_metrics }},{{ count_result.hosts_automated }},{{ count_result.hosts_not_automated }},{{ count_result.most_recent_automation }},{{ count_result.hosts_with_recent_failures }},{{ count_result.hosts_with_recent_success }}
         dest: "{{ playbook_dir }}/../output/managed_node_count_{{ count_result.timestamp | replace(':', '-') }}.csv"
         mode: "0644"
 
@@ -357,7 +508,7 @@
 
     - name: Build CSV content for GitHub
       ansible.builtin.set_fact:
-        csv_content_raw: "timestamp,controller_url,total_count,enabled_count,disabled_count,job_id,metrics_available,hosts_in_metrics,hosts_automated,hosts_not_automated,most_recent_automation\n{{ count_result.timestamp }},{{ count_result.controller_url }},{{ count_result.total_count }},{{ count_result.enabled_count }},{{ count_result.disabled_count }},{{ count_result.job_id }},{{ count_result.metrics_available }},{{ count_result.hosts_in_metrics }},{{ count_result.hosts_automated }},{{ count_result.hosts_not_automated }},{{ count_result.most_recent_automation }}\n"
+        csv_content_raw: "timestamp,controller_url,total_count,enabled_count,disabled_count,job_id,metrics_available,hosts_in_metrics,hosts_automated,hosts_not_automated,most_recent_automation,hosts_with_recent_failures,hosts_with_recent_success\n{{ count_result.timestamp }},{{ count_result.controller_url }},{{ count_result.total_count }},{{ count_result.enabled_count }},{{ count_result.disabled_count }},{{ count_result.job_id }},{{ count_result.metrics_available }},{{ count_result.hosts_in_metrics }},{{ count_result.hosts_automated }},{{ count_result.hosts_not_automated }},{{ count_result.most_recent_automation }},{{ count_result.hosts_with_recent_failures }},{{ count_result.hosts_with_recent_success }}\n"
 
     - name: Push CSV to GitHub repository
       ansible.builtin.uri:
@@ -397,4 +548,7 @@
           managed_node_count_hosts_automated: "{{ count_result.hosts_automated }}"
           managed_node_count_hosts_not_automated: "{{ count_result.hosts_not_automated }}"
           managed_node_count_most_recent_automation: "{{ count_result.most_recent_automation }}"
+          managed_node_count_job_events_available: "{{ count_result.job_events_available }}"
+          managed_node_count_hosts_with_failures: "{{ count_result.hosts_with_recent_failures }}"
+          managed_node_count_hosts_with_success: "{{ count_result.hosts_with_recent_success }}"
         per_host: false
