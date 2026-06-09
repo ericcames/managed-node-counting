@@ -1,0 +1,159 @@
+---
+- name: Delete Host Metrics by Hostname List
+  hosts: localhost
+  gather_facts: false
+  connection: local
+
+  vars:
+    controller_host: "{{ lookup('env', 'CONTROLLER_HOST') | regex_replace('/$', '') }}"
+    controller_token: "{{ lookup('env', 'CONTROLLER_OAUTH_TOKEN') }}"
+    controller_user: "{{ lookup('env', 'CONTROLLER_USERNAME') }}"
+    controller_pass: "{{ lookup('env', 'CONTROLLER_PASSWORD') }}"
+
+  tasks:
+
+    - name: Assert required credentials are present
+      ansible.builtin.assert:
+        that:
+          - controller_host | length > 0
+          - controller_token | length > 0 or
+            (controller_user | length > 0 and controller_pass | length > 0)
+        fail_msg: >-
+          Required credential environment variables are not set.
+          CONTROLLER_HOST={{ 'SET' if controller_host | length > 0 else 'MISSING' }}
+          CONTROLLER_OAUTH_TOKEN={{ 'SET' if controller_token | length > 0 else 'not set' }}
+          CONTROLLER_USERNAME={{ 'SET' if controller_user | length > 0 else 'not set' }}
+          CONTROLLER_PASSWORD={{ 'SET' if controller_pass | length > 0 else 'not set' }}
+          Attach the "AAP Node Count Credential" to this job template and re-launch.
+
+    - name: Assert hostname list is provided
+      ansible.builtin.assert:
+        that:
+          - hostnames_to_delete is defined
+          - hostnames_to_delete | length > 0
+        fail_msg: >-
+          Pass hostnames_to_delete as extra vars, e.g.:
+          -e '{"hostnames_to_delete": ["host1.example.com", "host2.example.com"]}'
+
+    - name: Detect controller API version
+      ansible.builtin.uri:
+        url: "{{ controller_host }}/api/"
+        method: GET
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: [200, 404]
+        return_content: true
+      register: api_root
+      changed_when: false
+
+    - name: Set API base URL
+      ansible.builtin.set_fact:
+        api_base: >-
+          {{
+            controller_host + '/api/controller/v2'
+            if api_root.status == 200
+               and api_root.json is defined
+               and api_root.json.apis is defined
+               and 'controller' in api_root.json.apis
+            else controller_host + '/api/v2'
+          }}
+
+    - name: Show deletion plan
+      ansible.builtin.debug:
+        msg: >-
+          Will delete {{ hostnames_to_delete | length }}
+          host(s) from host_metrics (API: {{ api_base }}).
+
+    - name: Look up each hostname in host_metrics
+      ansible.builtin.uri:
+        url: "{{ api_base }}/host_metrics/?hostname={{ item }}"
+        method: GET
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: [200, 404]
+        return_content: true
+      loop: "{{ hostnames_to_delete }}"
+      register: lookup_results
+      changed_when: false
+      failed_when: false
+
+    - name: Build deletion list
+      ansible.builtin.set_fact:
+        to_delete: >-
+          {{
+            lookup_results.results
+            | selectattr('json.count', 'defined')
+            | selectattr('json.count', 'gt', 0)
+            | map(attribute='json.results')
+            | map('first')
+            | list
+          }}
+        not_found: >-
+          {{
+            lookup_results.results
+            | rejectattr('json.count', 'defined')
+            | map(attribute='item')
+            | list
+            +
+            lookup_results.results
+            | selectattr('json.count', 'defined')
+            | selectattr('json.count', 'equalto', 0)
+            | map(attribute='item')
+            | list
+          }}
+
+    - name: Print hosts to be deleted
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            ['--- Hosts to delete (' + (to_delete | length | string) + ') ---']
+            + (to_delete | map(attribute='hostname')
+               | zip(to_delete | map(attribute='id') | map('string'))
+               | map('join', '  (id=') | map('regex_replace', '$', ')')
+               | list)
+            + (['--- Not found (' + (not_found | length | string) + ') ---']
+               + not_found
+               if not_found | length > 0
+               else [])
+          }}
+
+    - name: Delete host_metrics entries
+      ansible.builtin.uri:
+        url: "{{ api_base }}/host_metrics/{{ item.id }}/"
+        method: DELETE
+        headers:
+          Authorization: "{{ 'Bearer ' + controller_token if controller_token | length > 0 else omit }}"
+        url_username: "{{ controller_user if controller_token | length == 0 else omit }}"
+        url_password: "{{ controller_pass if controller_token | length == 0 else omit }}"
+        force_basic_auth: "{{ true if controller_token | length == 0 else omit }}"
+        validate_certs: false
+        status_code: [204, 404]
+      loop: "{{ to_delete }}"
+      loop_control:
+        label: "{{ item.hostname }} (id={{ item.id }})"
+      changed_when: true
+      failed_when: false
+      register: delete_results
+
+    - name: Print summary
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            ['==============================================',
+             '  Host Metrics Cleanup Summary',
+             '  Controller : ' + controller_host,
+             '  Mode       : soft delete (marks deleted, stops subscription counting)',
+             '----------------------------------------------',
+             '  Requested  : ' + (hostnames_to_delete | length | string),
+             '  Deleted    : ' + (to_delete | length | string),
+             '  Not found  : ' + (not_found | length | string),
+             '==============================================']
+          }}

@@ -336,7 +336,7 @@ short-lived token you use for inventory deregistration works here:
 
 - name: Delete host from host_metrics
   ansible.builtin.uri:
-    url: "{{ controller_host }}/api/controller/v2/host_metrics/{{ host_metrics_result.json.results[0].id }}/{{ delete_params }}"
+    url: "{{ controller_host }}/api/controller/v2/host_metrics/{{ host_metrics_result.json.results[0].id }}/"
     method: DELETE
     headers:
       Authorization: "Bearer {{ api_token }}"
@@ -347,17 +347,29 @@ short-lived token you use for inventory deregistration works here:
   when: host_metrics_result.json.count | default(0) | int > 0
 ```
 
-Set `delete_params` based on the environment:
-
-| Environment | `delete_params` value | Why |
-|-------------|----------------------|-----|
-| Lab / ephemeral VMs | `?soft_delete=false` | VM will never come back; clean the table |
-| Production decommission | *(empty string)* | Soft delete preserves history; auto-restores if hostname reappears |
-
 ### Make it non-breaking
 
 Use `failed_when: false` so a missing or already-deleted host_metrics record
 doesn't fail the teardown. Cleanup should never block the core teardown logic.
+
+### Bulk cleanup utility
+
+This repo includes `playbooks/delete_host_metrics.yml` — a standalone playbook
+that accepts a list of hostnames and deletes their host_metrics entries. Useful
+for cleaning up accumulated stale entries:
+
+```bash
+export CONTROLLER_HOST="https://aap.example.com"
+export CONTROLLER_USERNAME="admin"
+export CONTROLLER_PASSWORD="changeme"
+
+ansible-playbook playbooks/delete_host_metrics.yml \
+  -e '{"hostnames_to_delete": ["old-vm-1.example.com", "old-vm-2.example.com"]}'
+```
+
+Deleted hosts stop counting toward your subscription immediately. The records
+are preserved in a `deleted` state — if automation accidentally targets that
+hostname again, the record auto-restores.
 
 ---
 
