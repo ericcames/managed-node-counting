@@ -252,15 +252,15 @@ GET /api/v2/host_metrics/
 Returns a paginated list of all hosts AAP has tracked. Each entry has an
 `id` you'll need for deletion.
 
-### Soft delete (recommended for most cases)
+### Deleting a host from host metrics
 
 ```
 DELETE /api/v2/host_metrics/{id}/
 ```
 
 Marks the host as deleted. The record stays in the database but **stops
-counting toward your subscription**. If automation accidentally runs
-against that hostname later, the record is automatically restored.
+counting toward your subscription immediately**. If automation accidentally
+runs against that hostname later, the record is automatically restored.
 
 ```bash
 curl -k -X DELETE \
@@ -268,38 +268,21 @@ curl -k -X DELETE \
   "https://aap.example.com/api/v2/host_metrics/87/"
 ```
 
-### Hard delete (permanent removal)
+### Automatic cleanup timers
 
-```
-DELETE /api/v2/host_metrics/{id}/?soft_delete=false
-```
+AAP handles long-term cleanup automatically — no manual action needed:
 
-Permanently removes the record from the database. No history remains.
+| Timer | What happens |
+|-------|-------------|
+| **12 months** of no automation | Monthly scheduled task auto-soft-deletes the host |
+| **36 months** of no activity | Record is permanently removed from the database (hard delete) |
 
-```bash
-curl -k -X DELETE \
-  -H "Authorization: Bearer <your-token>" \
-  "https://aap.example.com/api/v2/host_metrics/87/?soft_delete=false"
-```
+These timers are hard-coded and cannot be changed via configuration.
 
-### When to use which
-
-| | Soft Delete | Hard Delete |
-|---|---|---|
-| **Endpoint** | `DELETE /api/v2/host_metrics/{id}/` | `DELETE /api/v2/host_metrics/{id}/?soft_delete=false` |
-| **Record preserved** | ✅ Yes (flagged as deleted) | ❌ No (permanently removed) |
-| **Counts toward subscription** | ❌ No | ❌ No |
-| **Auto-restores if host re-automated** | ✅ Yes | ❌ No (creates new entry) |
-| **Auto-purge** | After 36 months | Immediate |
-| **Best for** | Decommissioned servers, subscription cleanup | Lab/test teardown, data purge, privacy compliance |
-
-**Use soft delete** when the server is gone but you want the safety net. If
-someone runs a playbook against that hostname by mistake, the record comes
-back automatically — no gap in tracking.
-
-**Use hard delete** when the host will never come back and you want a clean
-table. Common for test/lab environments, CI/CD runners, or when hostnames
-contain information you're required to purge.
+> **There is no user-invokable hard delete.** The API only supports soft
+> delete (`DELETE /api/v2/host_metrics/{id}/`). Permanent removal happens
+> automatically after 36 months. This is sufficient for subscription
+> compliance — soft-deleted hosts stop counting immediately.
 
 ---
 
