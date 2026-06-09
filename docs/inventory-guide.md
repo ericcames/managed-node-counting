@@ -371,6 +371,15 @@ Deleted hosts stop counting toward your subscription immediately. The records
 are preserved in a `deleted` state — if automation accidentally targets that
 hostname again, the record auto-restores.
 
+### Real-world example
+
+The [`dc1.azure`](https://github.com/ericcames/dc1.azure) repo's
+[`teardown.yml`](https://github.com/ericcames/dc1.azure/blob/main/playbooks/teardown.yml)
+does both cleanup steps in one playbook: removes hosts from the AAP inventory
+(`ansible.platform.host`, `state: absent`) then looks up and deletes their
+host_metrics entries via the API. Both steps share the same short-lived token
+and use `failed_when: false` so cleanup never blocks the core teardown.
+
 ---
 
 ## 🚧 Common Pitfalls
