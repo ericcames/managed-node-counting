@@ -15,7 +15,8 @@ AAP — you don't need to be an API expert.
 5. [Dynamic Inventory Over Static](#dynamic-inventory-over-static)
 6. [Removing Hosts from an Inventory](#-removing-hosts-from-an-inventory)
 7. [Removing Hosts from Host Metrics](#-removing-hosts-from-host-metrics)
-8. [Common Pitfalls](#-common-pitfalls)
+8. [Automating Cleanup in Teardown Playbooks](#-automating-cleanup-in-teardown-playbooks)
+9. [Common Pitfalls](#-common-pitfalls)
 
 ---
 
@@ -302,6 +303,64 @@ contain information you're required to purge.
 
 ---
 
+## 🔧 Automating Cleanup in Teardown Playbooks
+
+Removing a host from an inventory and from host metrics should happen in the
+same teardown automation — not as separate manual steps. If your teardown
+playbook only deletes the inventory entry, the host_metrics record silently
+persists and keeps counting against your subscription.
+
+> **Dynamic inventory doesn't help here.** Cloud inventory sources (AWS EC2,
+> Azure RM) remove terminated instances from the inventory on the next sync,
+> but they never touch host metrics. Host metrics is a separate system. You
+> must delete those records explicitly.
+
+### Reusable Ansible pattern
+
+Look up the host_metrics entry by hostname, then delete it. The same
+short-lived token you use for inventory deregistration works here:
+
+```yaml
+- name: Look up host in host_metrics
+  ansible.builtin.uri:
+    url: "{{ controller_host }}/api/controller/v2/host_metrics/?hostname={{ fqdn }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ api_token }}"
+    validate_certs: false
+    status_code: [200, 404]
+    return_content: true
+  register: host_metrics_result
+  changed_when: false
+  failed_when: false
+
+- name: Delete host from host_metrics
+  ansible.builtin.uri:
+    url: "{{ controller_host }}/api/controller/v2/host_metrics/{{ host_metrics_result.json.results[0].id }}/{{ delete_params }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ api_token }}"
+    validate_certs: false
+    status_code: [204, 404]
+  changed_when: true
+  failed_when: false
+  when: host_metrics_result.json.count | default(0) | int > 0
+```
+
+Set `delete_params` based on the environment:
+
+| Environment | `delete_params` value | Why |
+|-------------|----------------------|-----|
+| Lab / ephemeral VMs | `?soft_delete=false` | VM will never come back; clean the table |
+| Production decommission | *(empty string)* | Soft delete preserves history; auto-restores if hostname reappears |
+
+### Make it non-breaking
+
+Use `failed_when: false` so a missing or already-deleted host_metrics record
+doesn't fail the teardown. Cleanup should never block the core teardown logic.
+
+---
+
 ## 🚧 Common Pitfalls
 
 | Pitfall | What goes wrong | Fix |
@@ -312,3 +371,4 @@ contain information you're required to purge.
 | No cleanup policy | Decommissioned hosts inflate subscription count | Soft-delete from host_metrics, remove from inventory |
 | Variables in the inventory file | Hard to read, version, and debug | Move variables to `group_vars/` and `host_vars/` directories |
 | Ignoring tags on cloud resources | Can't filter or group hosts meaningfully | Enforce `environment`, `team`, `application` tags on all resources |
+| Teardown only cleans inventory | Decommissioned hosts still count in host_metrics | Delete from host_metrics in the same teardown playbook (see § Automating Cleanup) |
